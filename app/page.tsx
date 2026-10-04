@@ -5,6 +5,12 @@ import Navbar from '@/components/Navbar';
 import TextUploader from '@/components/TextUploader';
 import ResultsView from '@/components/ResultsView';
 import ScanHistoryModal from '@/components/ScanHistoryModal';
+import { useFirebaseAuth } from '@/components/AuthProvider';
+import {
+  saveScanResultToFirestore,
+  subscribeToUserScans,
+  clearAllUserScansInFirestore,
+} from '@/lib/firebase';
 import { DetectionResult } from '@/types/detector';
 import { 
   ShieldCheck, 
@@ -29,12 +35,14 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
+  const { firebaseUser, authReady } = useFirebaseAuth();
   const [currentResult, setCurrentResult] = useState<DetectionResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [history, setHistory] = useState<DetectionResult[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'plagiarism' | 'paraphraser' | 'citations' | 'grammar'>('plagiarism');
   const [faqOpen, setFaqOpen] = useState<number | null>(0);
+  const [faqSearchQuery, setFaqSearchQuery] = useState('');
 
   // Standalone citation generator states
   const [citationUrl, setCitationUrl] = useState('');
@@ -51,27 +59,52 @@ export default function Home() {
   const [copiedParaphraseToast, setCopiedParaphraseToast] = useState(false);
 
   useEffect(() => {
+    if (!authReady) return;
+
+    if (firebaseUser && firebaseUser.emailVerified) {
+      const unsubscribe = subscribeToUserScans(firebaseUser, (cloudScans) => {
+        setHistory(cloudScans);
+      });
+      return () => unsubscribe();
+    }
+
     try {
       const saved = localStorage.getItem('originality_scan_history');
       if (saved) {
         setHistory(JSON.parse(saved));
       }
     } catch (e) {}
-  }, []);
+  }, [authReady, firebaseUser]);
 
-  const saveToHistory = (result: DetectionResult) => {
+  const saveToHistory = async (result: DetectionResult) => {
     try {
       const updated = [result, ...history.filter(h => h.id !== result.id)].slice(0, 15);
       setHistory(updated);
       localStorage.setItem('originality_scan_history', JSON.stringify(updated));
     } catch (e) {}
+
+    if (firebaseUser && firebaseUser.emailVerified) {
+      try {
+        await saveScanResultToFirestore(firebaseUser, result);
+      } catch (e) {
+        console.error('Failed to persist scan in Firestore:', e);
+      }
+    }
   };
 
-  const handleClearHistory = () => {
+  const handleClearHistory = async () => {
     setHistory([]);
     try {
       localStorage.removeItem('originality_scan_history');
     } catch (e) {}
+
+    if (firebaseUser && firebaseUser.emailVerified) {
+      try {
+        await clearAllUserScansInFirestore(firebaseUser);
+      } catch (e) {
+        console.error('Failed to clear scans in Firestore:', e);
+      }
+    }
   };
 
   const handleAnalyze = async (payload: {
@@ -152,7 +185,7 @@ export default function Home() {
             {/* Editorial Workspace Header */}
             <section className="hero-section">
               <h1 className="hero-title">
-                Originality, Paraphrase &amp; <span className="hero-title-highlight">Authorship Verification</span>
+                Originality, Plagiarism &amp; <span className="hero-title-highlight">Paraphrase</span>
               </h1>
               
               <p className="hero-description">
@@ -510,7 +543,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* FAQ Accordion */}
+            {/* FAQ Accordion with Search Filter */}
             <section className="faq-section">
               <div className="text-center section-heading-wrap">
                 <h2 className="section-heading">Frequently Asked Questions</h2>
@@ -519,44 +552,105 @@ export default function Home() {
                 </p>
               </div>
 
+              <div className="faq-search-container">
+                <div className="faq-search-input-wrap">
+                  <Search size={18} className="faq-search-icon" />
+                  <input
+                    type="search"
+                    className="faq-search-input"
+                    placeholder="Search questions (e.g., privacy, PDF, citations, paraphrasing, cloud history)..."
+                    aria-label="Search frequently asked questions"
+                    value={faqSearchQuery}
+                    onChange={(e) => setFaqSearchQuery(e.target.value)}
+                  />
+                  {faqSearchQuery && (
+                    <button
+                      type="button"
+                      className="faq-search-clear-btn"
+                      onClick={() => setFaqSearchQuery('')}
+                      aria-label="Clear FAQ search"
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="faq-list">
-                {[
-                  {
-                    q: 'Will my document be stored or indexed in public repositories?',
-                    a: 'Never. Unlike legacy institutional checkers that permanently store submissions in shared databases, OriginalityAI enforces a strict Zero Data Retention policy. Documents are processed in memory and never indexed publicly.'
-                  },
-                  {
-                    q: 'How does semantic paraphrase and patchwriting detection work?',
-                    a: 'Rather than only matching identical consecutive word strings, OriginalityAI evaluates syntactic structure, synonym substitution density, and clause inversion against published academic literature.'
-                  },
-                  {
-                    q: 'Can this platform generate bibliography citations automatically?',
-                    a: 'Yes. Whenever an external literature match is identified, the inspection sidebar provides formatted citations in APA 7th Edition, MLA 9th Edition, and Chicago styles for immediate copying.'
-                  },
-                  {
-                    q: 'What document file formats are supported for upload?',
-                    a: 'You can upload Adobe PDF (.pdf), Microsoft Word (.docx), Plain Text (.txt), and Markdown (.md) files up to 15 MB, or paste text directly into the workspace.'
+                {(() => {
+                  const faqItems = [
+                    {
+                      q: 'Will my document be stored or indexed in public repositories?',
+                      a: 'Never. Unlike legacy institutional checkers that permanently store submissions in shared databases, OriginalityAI enforces a strict Zero Data Retention policy for public indices. Documents are never shared or indexed publicly.'
+                    },
+                    {
+                      q: 'How does semantic paraphrase and patchwriting detection work?',
+                      a: 'Rather than only matching identical consecutive word strings, OriginalityAI evaluates syntactic structure, synonym substitution density, and clause inversion against published academic literature.'
+                    },
+                    {
+                      q: 'Can this platform generate bibliography citations automatically?',
+                      a: 'Yes. Whenever an external literature match is identified, the inspection sidebar provides formatted citations in APA 7th Edition, MLA 9th Edition, and Chicago styles for immediate copying.'
+                    },
+                    {
+                      q: 'What document file formats are supported for upload?',
+                      a: 'You can upload Adobe PDF (.pdf), Microsoft Word (.docx), Plain Text (.txt), and Markdown (.md) files up to 15 MB, or paste text directly into the workspace.'
+                    },
+                    {
+                      q: 'How are my scan reports saved across devices?',
+                      a: 'When you sign in with Google, your scan history and student verification profile are securely stored in your private Firestore workspace, accessible only to your authenticated account.'
+                    },
+                    {
+                      q: 'How do students qualify for free unlimited access?',
+                      a: 'On the Sign In page, select the Student Account tab and verify with your school or university details using Google Sign-In or an email verification code to unlock full access at zero cost.'
+                    }
+                  ];
+
+                  const normalizedQuery = faqSearchQuery.trim().toLowerCase();
+                  const filteredFaqs = normalizedQuery
+                    ? faqItems.filter(
+                        (item) =>
+                          item.q.toLowerCase().includes(normalizedQuery) ||
+                          item.a.toLowerCase().includes(normalizedQuery)
+                      )
+                    : faqItems;
+
+                  if (filteredFaqs.length === 0) {
+                    return (
+                      <div className="faq-empty-state">
+                        <HelpCircle size={24} className="text-dim" />
+                        <p>No questions match &ldquo;{faqSearchQuery}&rdquo;.</p>
+                        <button
+                          type="button"
+                          className="btn-action-secondary"
+                          onClick={() => setFaqSearchQuery('')}
+                        >
+                          Clear Search Filter
+                        </button>
+                      </div>
+                    );
                   }
-                ].map((item, index) => {
-                  const isOpen = faqOpen === index;
-                  return (
-                    <div key={index} className="faq-item">
-                      <button
-                        type="button"
-                        className="faq-question-btn"
-                        onClick={() => setFaqOpen(isOpen ? null : index)}
-                      >
-                        <span>{item.q}</span>
-                        <ChevronDown size={18} className={`faq-arrow ${isOpen ? 'faq-arrow-open' : ''}`} />
-                      </button>
-                      {isOpen && (
-                        <div className="faq-answer-body">
-                          <p>{item.a}</p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+
+                  return filteredFaqs.map((item, index) => {
+                    const isOpen = normalizedQuery ? true : faqOpen === index;
+                    return (
+                      <div key={item.q} className="faq-item">
+                        <button
+                          type="button"
+                          className="faq-question-btn"
+                          onClick={() => setFaqOpen(faqOpen === index ? null : index)}
+                        >
+                          <span>{item.q}</span>
+                          <ChevronDown size={18} className={`faq-arrow ${isOpen ? 'faq-arrow-open' : ''}`} />
+                        </button>
+                        {isOpen && (
+                          <div className="faq-answer-body">
+                            <p>{item.a}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </section>
           </>

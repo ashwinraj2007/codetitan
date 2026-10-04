@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
+import { useFirebaseAuth } from '@/components/AuthProvider';
 import { 
   ShieldCheck, 
   LogOut, 
@@ -28,6 +29,25 @@ export default function Navbar({
   onSelectTab
 }: NavbarProps) {
   const { data: session, status } = useSession();
+  const { firebaseUser, userProfile, authReady, logoutFirebase } = useFirebaseAuth();
+
+  const activeName =
+    userProfile?.displayName ||
+    firebaseUser?.displayName ||
+    session?.user?.name ||
+    (firebaseUser?.email ? firebaseUser.email.split('@')[0] : undefined);
+  const activeEmail = firebaseUser?.email || session?.user?.email;
+  const isUserSignedIn = Boolean(firebaseUser || session?.user);
+  const isLoadingAuth = status === 'loading' && !authReady;
+
+  const handleSignOutAll = async () => {
+    if (firebaseUser) {
+      await logoutFirebase();
+    }
+    if (session?.user) {
+      await signOut();
+    }
+  };
 
   return (
     <header className="navbar">
@@ -100,20 +120,20 @@ export default function Navbar({
             </button>
           )}
 
-          {status === 'loading' ? (
+          {isLoadingAuth ? (
             <div className="auth-skeleton" />
-          ) : session?.user ? (
+          ) : isUserSignedIn ? (
             <div className="user-profile">
               <div className="user-avatar-fallback">
-                {session.user.name?.charAt(0).toUpperCase() || 'U'}
+                {activeName?.charAt(0).toUpperCase() || 'U'}
               </div>
               <div className="user-details">
-                <span className="user-name">{session.user.name || 'Account'}</span>
-                <span className="user-email">{session.user.email}</span>
+                <span className="user-name">{activeName || 'Account'}</span>
+                <span className="user-email">{activeEmail}</span>
               </div>
               <button 
                 type="button" 
-                onClick={() => signOut()}
+                onClick={handleSignOutAll}
                 className="btn-signout"
                 title="Sign out"
               >

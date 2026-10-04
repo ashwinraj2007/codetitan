@@ -1,0 +1,186 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 3. Entity Validation Blueprints (Synced verbatim with firebase-blueprint.json)
+    function isValidUserProfile(data) {
+      return data.keys().hasAll([
+        'uid',
+        'email',
+        'displayName',
+        'photoURL',
+        'userType',
+        'institutionName',
+        'studentId',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid',
+        'email',
+        'displayName',
+        'photoURL',
+        'userType',
+        'institutionName',
+        'studentId',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.uid == request.auth.uid &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+      data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+      data.photoURL is string && data.photoURL.size() >= 0 && data.photoURL.size() <= 512 &&
+      data.userType is string && data.userType.size() >= 7 && data.userType.size() <= 8 &&
+      (data.userType == 'student' || data.userType == 'standard') &&
+      data.institutionName is string && data.institutionName.size() >= 0 && data.institutionName.size() <= 160 &&
+      data.studentId is string && data.studentId.size() >= 0 && data.studentId.size() <= 64 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidScanRecord(data) {
+      return data.keys().hasAll([
+        'id',
+        'ownerId',
+        'title',
+        'wordCount',
+        'overallScore',
+        'plagiarismScore',
+        'paraphraseScore',
+        'aiScore',
+        'originalScore',
+        'summary',
+        'payloadJson',
+        'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id',
+        'ownerId',
+        'title',
+        'wordCount',
+        'overallScore',
+        'plagiarismScore',
+        'paraphraseScore',
+        'aiScore',
+        'originalScore',
+        'summary',
+        'payloadJson',
+        'createdAt'
+      ]) &&
+      data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.ownerId == request.auth.uid &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+      data.wordCount is number && data.wordCount >= 0 && data.wordCount <= 100000 &&
+      data.overallScore is number && data.overallScore >= 0 && data.overallScore <= 100 &&
+      data.plagiarismScore is number && data.plagiarismScore >= 0 && data.plagiarismScore <= 100 &&
+      data.paraphraseScore is number && data.paraphraseScore >= 0 && data.paraphraseScore <= 100 &&
+      data.aiScore is number && data.aiScore >= 0 && data.aiScore <= 100 &&
+      data.originalScore is number && data.originalScore >= 0 && data.originalScore <= 100 &&
+      data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 2000 &&
+      data.payloadJson is string && data.payloadJson.size() >= 2 && data.payloadJson.size() <= 400000 &&
+      data.createdAt is timestamp;
+    }
+
+    // 4. Collection Rules: /users/{userId}
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser() &&
+        isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action: Update Profile or Student Verification Metadata
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName',
+            'photoURL',
+            'userType',
+            'institutionName',
+            'studentId',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedUser() && isOwner(userId) && isValidId(userId);
+
+      // 5. Subcollection Rules: /users/{userId}/scans/{scanId}
+      match /scans/{scanId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(scanId) &&
+          existing().ownerId == request.auth.uid &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow list: if isOwner(userId) &&
+          resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedUser() &&
+          isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(scanId) &&
+          isValidScanRecord(incoming()) &&
+          incoming().id == scanId &&
+          incoming().ownerId == userId &&
+          incoming().createdAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser() &&
+          isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(scanId) &&
+          existing().ownerId == request.auth.uid &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+      }
+    }
+  }
+}

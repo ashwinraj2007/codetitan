@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn, useSession } from 'next-auth/react';
+import { useFirebaseAuth } from '@/components/AuthProvider';
 import Link from 'next/link';
 import { 
   ShieldCheck, 
@@ -18,12 +19,14 @@ import {
   User,
   School,
   IdCard,
-  Building
+  Building,
+  Globe
 } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
   const { data: session } = useSession();
+  const { firebaseUser, loginWithGoogle } = useFirebaseAuth();
 
   // Mode: student vs standard
   const [userType, setUserType] = useState<'student' | 'standard'>('student');
@@ -37,6 +40,7 @@ export default function LoginPage() {
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'details' | 'code'>('details');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [demoCode, setDemoCode] = useState<string | null>(null);
@@ -45,10 +49,31 @@ export default function LoginPage() {
 
   // If already logged in, redirect to home
   useEffect(() => {
-    if (session?.user) {
+    if (session?.user || firebaseUser) {
       router.push('/');
     }
-  }, [session, router]);
+  }, [session, firebaseUser, router]);
+
+  const handleGoogleSignIn = async () => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setIsGoogleLoading(true);
+    try {
+      await loginWithGoogle({
+        userType,
+        institutionName: userType === 'student' ? institutionName.trim() : '',
+        studentId: userType === 'student' ? studentId.trim() : '',
+      });
+      router.push('/');
+      router.refresh();
+    } catch (err: any) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setErrorMsg(err?.message || 'Google Sign-In could not be completed. Please try again.');
+      }
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   // Resend countdown timer
   useEffect(() => {
@@ -306,6 +331,7 @@ export default function LoginPage() {
               className="btn-login-submit"
               disabled={
                 isLoading ||
+                isGoogleLoading ||
                 !email.trim() ||
                 (userType === 'student' && (!institutionName.trim() || !studentId.trim()))
               }
@@ -321,6 +347,26 @@ export default function LoginPage() {
                   <ArrowRight size={18} />
                 </>
               )}
+            </button>
+
+            <div className="auth-divider-row">
+              <span>or sign in instantly</span>
+            </div>
+
+            <button
+              type="button"
+              className="btn-google-signin"
+              onClick={handleGoogleSignIn}
+              disabled={isLoading || isGoogleLoading}
+            >
+              <Globe size={18} className="text-emerald" />
+              <span>
+                {isGoogleLoading
+                  ? 'Connecting with Google...'
+                  : userType === 'student'
+                    ? 'Continue with Google (Free Student Access)'
+                    : 'Continue with Google'}
+              </span>
             </button>
           </form>
         ) : (

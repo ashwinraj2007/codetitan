@@ -1,0 +1,173 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account and student entitlement record isolated per authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the account owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified email address of the user.",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Profile avatar URL.",
+          "minLength": 0,
+          "maxLength": 512
+        },
+        "userType": {
+          "type": "string",
+          "description": "Account classification tier.",
+          "enum": ["student", "standard"],
+          "minLength": 7,
+          "maxLength": 8
+        },
+        "institutionName": {
+          "type": "string",
+          "description": "School, college, or university name for student accounts.",
+          "minLength": 0,
+          "maxLength": 160
+        },
+        "studentId": {
+          "type": "string",
+          "description": "Student ID or roll number for student accounts.",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was last updated."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "photoURL",
+        "userType",
+        "institutionName",
+        "studentId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ScanRecord": {
+      "title": "ScanRecord",
+      "description": "Plagiarism, paraphrase, and authorship inspection record owned by a specific user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique scan identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user who created this scan.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Manuscript or document title.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "wordCount": {
+          "type": "number",
+          "description": "Total words analyzed in the document."
+        },
+        "overallScore": {
+          "type": "number",
+          "description": "Overall originality score (0-100)."
+        },
+        "plagiarismScore": {
+          "type": "number",
+          "description": "Direct plagiarism percentage (0-100)."
+        },
+        "paraphraseScore": {
+          "type": "number",
+          "description": "Semantic paraphrasing percentage (0-100)."
+        },
+        "aiScore": {
+          "type": "number",
+          "description": "AI synthetic cadence percentage (0-100)."
+        },
+        "originalScore": {
+          "type": "number",
+          "description": "Original writing percentage (0-100)."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Executive diagnostic summary.",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "payloadJson": {
+          "type": "string",
+          "description": "Bounded serialized detection result for full report restoration.",
+          "minLength": 2,
+          "maxLength": 400000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the scan was saved."
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "wordCount",
+        "overallScore",
+        "plagiarismScore",
+        "paraphraseScore",
+        "aiScore",
+        "originalScore",
+        "summary",
+        "payloadJson",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Private user profile and student verification metadata strictly isolated to userId."
+    },
+    "/users/{userId}/scans/{scanId}": {
+      "schema": {
+        "$ref": "#/entities/ScanRecord"
+      },
+      "description": "Per-user subcollection of saved plagiarism and paraphrase scan reports."
+    }
+  }
+}
