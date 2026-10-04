@@ -5,6 +5,10 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'OriginalityAI — AI Plagiarism & Paraphrase Detector for Students',
   description: 'Free AI-driven academic integrity, paraphrase, and plagiarism detector for students. Inspect essays, thesis drafts, and research with sentence-level transparency.',
+  openGraph: {
+    title: 'OriginalityAI — AI Plagiarism & Paraphrase Detector for Students',
+    description: 'Free AI-driven academic integrity, paraphrase, and plagiarism detector for students. Inspect essays, thesis drafts, and research with sentence-level transparency.',
+  },
   keywords: [
     'plagiarism detector',
     'paraphrase detector',
