@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateOtp, sendOtpEmail } from '@/lib/otp-store';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email } = body;
+    const { email, userType, institutionName, studentId } = body;
 
     if (!email || typeof email !== 'string') {
       return NextResponse.json(
@@ -27,7 +30,11 @@ export async function POST(req: NextRequest) {
     const code = generateOtp(cleanEmail);
 
     // Send email
-    const result = await sendOtpEmail(cleanEmail, code);
+    const result = await sendOtpEmail(cleanEmail, code, {
+      userType,
+      institutionName,
+      studentId,
+    });
 
     return NextResponse.json({
       success: true,
@@ -35,6 +42,7 @@ export async function POST(req: NextRequest) {
       message: result.message,
       simulated: result.simulated,
       demoCode: result.simulated ? result.demoCode : undefined,
+      smtpError: result.smtpError,
     });
   } catch (error: any) {
     console.error('Error in /api/auth/send-code:', error);

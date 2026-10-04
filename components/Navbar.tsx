@@ -5,14 +5,13 @@ import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { 
   ShieldCheck, 
-  GraduationCap, 
   LogOut, 
-  Sparkles, 
+  History, 
   BookOpen, 
   Repeat, 
   CheckCheck,
   FileCheck2,
-  Mail
+  ArrowUpRight
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -33,26 +32,29 @@ export default function Navbar({
   return (
     <header className="navbar">
       <div className="navbar-container">
-        {/* Brand */}
-        <div className="brand" onClick={() => onSelectTab && onSelectTab('plagiarism')} style={{ cursor: 'pointer' }}>
+        {/* Zone 1: Clean single-line Brand Wordmark */}
+        <div
+          className="brand"
+          onClick={() => onSelectTab && onSelectTab('plagiarism')}
+          style={{ cursor: 'pointer' }}
+        >
           <div className="brand-logo">
-            <ShieldCheck className="brand-icon" size={24} />
+            <ShieldCheck className="brand-icon" size={20} />
           </div>
-          <div className="brand-text">
-            <span className="brand-title">Originality<span className="brand-gradient">AI</span></span>
-            <span className="brand-tagline">By Students, For Students</span>
-          </div>
+          <span className="brand-title">
+            Originality<span className="brand-gradient">AI</span>
+          </span>
         </div>
 
-        {/* Central Tool Switcher (Grammarly / DupliChecker style) */}
-        <nav className="navbar-nav-tools">
+        {/* Zone 2: Clean Single-Line Navigation Links */}
+        <nav className="navbar-nav-tools" aria-label="Workspace tools">
           <button
             type="button"
             className={`nav-tool-btn ${activeTab === 'plagiarism' ? 'nav-tool-active' : ''}`}
             onClick={() => onSelectTab && onSelectTab('plagiarism')}
           >
             <FileCheck2 size={15} />
-            <span>Plagiarism Checker</span>
+            <span>Originality Scanner</span>
           </button>
 
           <button
@@ -61,7 +63,7 @@ export default function Navbar({
             onClick={() => onSelectTab && onSelectTab('paraphraser')}
           >
             <Repeat size={15} />
-            <span>Paraphrasing Tool</span>
+            <span>Paraphraser</span>
           </button>
 
           <button
@@ -70,7 +72,7 @@ export default function Navbar({
             onClick={() => onSelectTab && onSelectTab('citations')}
           >
             <BookOpen size={15} />
-            <span>Citation Generator</span>
+            <span>Citations</span>
           </button>
 
           <button
@@ -79,29 +81,22 @@ export default function Navbar({
             onClick={() => onSelectTab && onSelectTab('grammar')}
           >
             <CheckCheck size={15} />
-            <span>Grammar & Tone</span>
+            <span>Grammar & Style</span>
           </button>
         </nav>
 
-        {/* Right side: Free Student Badge & Google Auth */}
+        {/* Zone 3: Primary Actions */}
         <div className="navbar-actions">
-          <div className="student-badge">
-            <GraduationCap size={15} className="badge-icon" />
-            <span className="badge-text">
-              {session?.user ? '100% Free Student Pass' : 'Free for All Students & Gmail'}
-            </span>
-            <span className="badge-pulse" />
-          </div>
-
           {historyCount > 0 && (
             <button 
               type="button" 
               className="btn-history"
               onClick={onOpenHistory}
-              title="Recent Drafts"
+              title="Recent Scans"
             >
-              <Sparkles size={15} />
-              <span>History ({historyCount})</span>
+              <History size={15} />
+              <span>History</span>
+              <span className="history-count-num">{historyCount}</span>
             </button>
           )}
 
@@ -110,22 +105,10 @@ export default function Navbar({
           ) : session?.user ? (
             <div className="user-profile">
               <div className="user-avatar-fallback">
-                {(session.user as any).userType === 'student' ? '🎓' : (session.user.name?.charAt(0) || 'U')}
+                {session.user.name?.charAt(0).toUpperCase() || 'U'}
               </div>
               <div className="user-details">
-                <div className="user-name-line">
-                  <span className="user-name">{session.user.name || 'User'}</span>
-                  {(session.user as any).userType === 'student' ? (
-                    <span className="pill-student-tiny">Student</span>
-                  ) : (
-                    <span className="pill-standard-tiny">Standard</span>
-                  )}
-                </div>
-                {(session.user as any).institutionName && (
-                  <span className="user-school-tag">
-                    {(session.user as any).institutionName} (ID: {(session.user as any).studentId || 'Verified'})
-                  </span>
-                )}
+                <span className="user-name">{session.user.name || 'Account'}</span>
                 <span className="user-email">{session.user.email}</span>
               </div>
               <button 
@@ -142,8 +125,8 @@ export default function Navbar({
               href="/login"
               className="btn-email-signin"
             >
-              <GraduationCap size={16} />
-              <span>Student / User Sign In</span>
+              <span>Sign In</span>
+              <ArrowUpRight size={15} />
             </Link>
           )}
         </div>

@@ -55,6 +55,56 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
   const wordCount = words.length;
   const charCount = text.length;
 
+  // Browser-side PDF.js text extraction (handles Vercel >4.5MB payload limits & modern CMap PDFs)
+  const extractPdfInBrowser = async (file: File): Promise<string> => {
+    try {
+      const win = window as any;
+      if (!win.pdfjsLib) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('Failed to load browser PDF reader'));
+          document.head.appendChild(script);
+        });
+      }
+
+      const pdfjsLib = win.pdfjsLib;
+      if (!pdfjsLib) return '';
+
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+      const arrayBuffer = await file.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(arrayBuffer),
+        cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/',
+      });
+
+      const pdf = await loadingTask.promise;
+      const pagesText: string[] = [];
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageStr = (textContent.items || [])
+          .map((item: any) => ('str' in item ? item.str : ''))
+          .join(' ');
+        if (pageStr.trim()) {
+          pagesText.push(pageStr.trim());
+        }
+      }
+
+      return pagesText.join('\n\n').trim();
+    } catch (e) {
+      console.warn('Browser PDF extraction fallback warning:', e);
+      return '';
+    }
+  };
+
   const handleFileUpload = async (file: File) => {
     setErrorMsg(null);
     setSuccessNotice(null);
@@ -65,8 +115,17 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
       return;
     }
 
-    const name = file.name;
+    const name = file.name || 'document.pdf';
     const lowerName = name.toLowerCase();
+    let isPdfFile = lowerName.endsWith('.pdf') || file.type === 'application/pdf';
+    if (!isPdfFile && file.size >= 5) {
+      try {
+        const header = await file.slice(0, 5).text();
+        if (header === '%PDF-') isPdfFile = true;
+      } catch {
+        // ignore header read errors
+      }
+    }
     setIsExtracting(true);
     setFileName(name);
 
@@ -86,7 +145,18 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
         }
       }
 
-      // 2. Server-side text extractor for .docx, .pdf, and other formats
+      // 2. If PDF > 4MB (Vercel Serverless body limit is 4.5MB), extract in browser first
+      if (isPdfFile && file.size > 4 * 1024 * 1024) {
+        const browserText = await extractPdfInBrowser(file);
+        if (browserText) {
+          const count = browserText.split(/\s+/).filter(Boolean).length;
+          setText(browserText);
+          setSuccessNotice(`Successfully extracted ${count} words from ${name}`);
+          return;
+        }
+      }
+
+      // 3. Server-side text extractor for .docx, .pdf, and other formats
       const formData = new FormData();
       formData.append('file', file);
 
@@ -95,13 +165,31 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
         body: formData,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to extract text from document.');
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
       }
 
-      setText(data.text);
-      setSuccessNotice(`Successfully extracted ${data.wordCount} words from ${name}`);
+      if (res.ok && data?.text) {
+        setText(data.text);
+        setSuccessNotice(`Successfully extracted ${data.wordCount} words from ${name}`);
+        return;
+      }
+
+      // 4. Fallback to client-side PDF.js if server extraction failed or returned empty on Vercel
+      if (isPdfFile) {
+        const browserText = await extractPdfInBrowser(file);
+        if (browserText) {
+          const count = browserText.split(/\s+/).filter(Boolean).length;
+          setText(browserText);
+          setSuccessNotice(`Successfully extracted ${count} words from ${name}`);
+          return;
+        }
+      }
+
+      throw new Error(data?.error || 'Failed to extract text from document.');
     } catch (err: any) {
       console.error('File extraction error:', err);
       setErrorMsg(err.message || 'Could not parse document. You can also copy and paste the text directly into the box.');
@@ -168,7 +256,7 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
 
     await onAnalyze({
       text,
-      title: title.trim() || 'Student Academic Document',
+      title: title.trim() || 'Untitled Manuscript',
       checkParaphrase,
       checkWebPlagiarism,
       checkAiWriting,
@@ -191,17 +279,6 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
 
   return (
     <div className="uploader-card">
-      {/* Top Banner (Grammarly style) */}
-      <div className="uploader-top-banner">
-        <div className="banner-left">
-          <ShieldCheck size={18} className="text-emerald" />
-          <span><strong>Free Student Scanner:</strong> Cross-checks 10+ billion web pages, JSTOR, ProQuest & Wikipedia entries.</span>
-        </div>
-        <div className="banner-right">
-          <span className="free-limit-pill">Free Tier: 2,500 words/scan (Unlimited Daily Scans)</span>
-        </div>
-      </div>
-
       <form onSubmit={handleSubmit} className="uploader-form">
         {/* Document Header Controls */}
         <div className="uploader-header">
@@ -209,18 +286,18 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
             <input
               type="text"
               className="text-input-field"
-              placeholder="Paper or Assignment Title (e.g. Psychology Research Draft)..."
+              placeholder="Document or Manuscript Title (e.g. Research Literature Review)..."
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={isLoading || isExtracting}
             />
           </div>
 
-          <div className="sample-buttons">
-            <span className="sample-label">Try sample:</span>
+          <div className="sample-buttons" role="group" aria-label="Load sample text">
+            <span className="sample-label">Load preset:</span>
             <button
               type="button"
-              className="btn-sample btn-sample-paraphrase"
+              className="btn-sample"
               onClick={() => loadSample('paraphrased')}
               disabled={isLoading || isExtracting}
             >
@@ -228,19 +305,19 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
             </button>
             <button
               type="button"
-              className="btn-sample btn-sample-plagiarized"
+              className="btn-sample"
               onClick={() => loadSample('plagiarized')}
               disabled={isLoading || isExtracting}
             >
-              Direct Plagiarism
+              Direct Match
             </button>
             <button
               type="button"
-              className="btn-sample btn-sample-original"
+              className="btn-sample"
               onClick={() => loadSample('original')}
               disabled={isLoading || isExtracting}
             >
-              100% Original
+              Authentic Draft
             </button>
           </div>
         </div>
@@ -249,12 +326,11 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
         <input
           ref={fileInputRef}
           type="file"
-          accept=".txt,.md,.rtf,.doc,.docx,.pdf"
+          accept=".txt,.md,.rtf,.doc,.docx,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
           className="hidden-file-input"
           onChange={handleFileChange}
           disabled={isLoading || isExtracting}
           onClick={(e) => {
-            // Prevent event bubbling if triggered by container
             e.stopPropagation();
           }}
         />
@@ -275,14 +351,14 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
           <div className="dropzone-content">
             {isExtracting ? (
               <div className="dropzone-loading-inner">
-                <Loader2 className="spinner-icon text-emerald" size={24} />
-                <span>Reading & extracting text from <strong>{fileName}</strong>...</span>
+                <Loader2 className="spinner-icon text-emerald" size={20} />
+                <span>Extracting text from <strong>{fileName}</strong>...</span>
               </div>
             ) : fileName ? (
               <div className="file-loaded-row">
                 <span className="file-loaded">
-                  <FileText size={18} />
-                  <span>Loaded file: <strong>{fileName}</strong></span>
+                  <FileText size={16} />
+                  <span>Active file: <strong>{fileName}</strong></span>
                 </span>
                 <button
                   type="button"
@@ -292,17 +368,17 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
                     setFileName(null);
                     setSuccessNotice(null);
                   }}
-                  title="Clear file tag"
+                  title="Remove file"
                 >
                   <X size={15} />
                 </button>
               </div>
             ) : (
               <div className="dropzone-default-row">
-                <UploadCloud className="dropzone-icon" size={24} />
+                <UploadCloud className="dropzone-icon" size={20} />
                 <div className="dropzone-text">
                   <span className="dropzone-lead">
-                    Drag and drop your file here, or{' '}
+                    Drop a document here, or{' '}
                     <button
                       type="button"
                       className="btn-inline-browse"
@@ -311,11 +387,11 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
                         fileInputRef.current?.click();
                       }}
                     >
-                      browse your computer
+                      browse files
                     </button>
                   </span>
                   <span className="dropzone-sub">
-                    Supports <strong>PDF (.pdf)</strong>, <strong>Word (.docx, .doc)</strong>, <strong>Text (.txt)</strong>, & <strong>Markdown (.md)</strong> up to 15MB
+                    PDF (.pdf) · Word (.docx) · Plain Text (.txt) · Markdown (.md) · Max 15 MB
                   </span>
                 </div>
               </div>
@@ -326,7 +402,7 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
         {/* Success Notice if file parsed */}
         {successNotice && (
           <div className="file-success-banner">
-            <CheckCircle2 size={16} />
+            <CheckCircle2 size={15} />
             <span>{successNotice}</span>
           </div>
         )}
@@ -335,7 +411,7 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
         <div className="textarea-wrapper">
           <textarea
             className="main-textarea"
-            placeholder="Paste your essay, thesis paragraph, or assignment here to check for plagiarism, paraphrasing, and AI patterns..."
+            placeholder="Paste your manuscript, article, or research draft here to inspect for verbatim matches, semantic paraphrasing, AI cadence, and clarity..."
             rows={11}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -345,11 +421,11 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
           <div className="textarea-footer">
             <div className="counter-stats">
               <span className="stat-item">
-                <strong>{wordCount}</strong> / 2,500 words
+                <strong>{wordCount.toLocaleString()}</strong> / 2,500 words
               </span>
-              <span className="stat-separator">•</span>
-              <span className="stat-item"><strong>{charCount}</strong> characters</span>
-              <span className="stat-separator">•</span>
+              <span className="stat-separator" aria-hidden="true">·</span>
+              <span className="stat-item"><strong>{charCount.toLocaleString()}</strong> chars</span>
+              <span className="stat-separator" aria-hidden="true">·</span>
               <span className="stat-item">~<strong>{Math.max(1, Math.ceil(wordCount / 200))}</strong> min read</span>
             </div>
 
@@ -360,7 +436,7 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
                 onClick={() => setShowExcludeUrl(!showExcludeUrl)}
               >
                 <Globe size={13} />
-                <span>{showExcludeUrl ? 'Hide Exclude URL' : 'Exclude URL'}</span>
+                <span>{showExcludeUrl ? 'Hide Exclude URL' : 'Exclude Source URL'}</span>
               </button>
 
               {text && (
@@ -378,17 +454,17 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
           </div>
         </div>
 
-        {/* DupliChecker-style Exclude URL field */}
+        {/* Exclude URL field */}
         {showExcludeUrl && (
           <div className="exclude-url-box">
             <label htmlFor="exclude-url-input" className="exclude-url-label">
-              <Globe size={14} /> Exclude URL from matching (e.g., your own published blog, preprint, or university site):
+              <Globe size={14} /> Exclude specific URL from similarity matching (e.g. your own published preprint or repository):
             </label>
             <input
               id="exclude-url-input"
               type="url"
               className="text-input-field"
-              placeholder="https://myuniversity.edu/student-paper-draft"
+              placeholder="https://example.org/published-draft"
               value={excludeUrl}
               onChange={(e) => setExcludeUrl(e.target.value)}
               disabled={isLoading || isExtracting}
@@ -396,7 +472,7 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
           </div>
         )}
 
-        {/* Capabilities Checkboxes */}
+        {/* Analysis Parameters */}
         <div className="options-panel">
           <div className="options-grid">
             <label className="checkbox-card">
@@ -408,7 +484,7 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
               />
               <div className="checkbox-info">
                 <span className="checkbox-title">Paraphrase & Patchwriting</span>
-                <span className="checkbox-desc">Identifies synonym swaps & clause restructuring</span>
+                <span className="checkbox-desc">Detects synonym swaps & clause restructuring</span>
               </div>
             </label>
 
@@ -420,8 +496,8 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
                 disabled={isLoading || isExtracting}
               />
               <div className="checkbox-info">
-                <span className="checkbox-title">Web & Academic Database Search</span>
-                <span className="checkbox-desc">Scans billions of open educational pages & articles</span>
+                <span className="checkbox-title">Web & Publication Index</span>
+                <span className="checkbox-desc">Cross-checks indexed repositories & articles</span>
               </div>
             </label>
 
@@ -433,8 +509,8 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
                 disabled={isLoading || isExtracting}
               />
               <div className="checkbox-info">
-                <span className="checkbox-title">AI Writing Cadence (ChatGPT/Claude)</span>
-                <span className="checkbox-desc">Measures burstiness & perplexity markers</span>
+                <span className="checkbox-title">AI Authorship Cadence</span>
+                <span className="checkbox-desc">Evaluates sentence burstiness & perplexity</span>
               </div>
             </label>
 
@@ -447,7 +523,7 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
               />
               <div className="checkbox-info">
                 <span className="checkbox-title">Grammar & Tone Clarity</span>
-                <span className="checkbox-desc">Flags passive voice & stylistic improvements</span>
+                <span className="checkbox-desc">Flags passive voice & structural readability</span>
               </div>
             </label>
           </div>
@@ -455,13 +531,21 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
 
         {errorMsg && (
           <div className="error-banner">
-            <AlertTriangle size={18} />
+            <AlertTriangle size={16} />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        {/* Submit Actions (Grammarly Green + DupliChecker layout) */}
-        <div className="uploader-action-bar">
+        {/* Primary Action & Unboxed Metadata */}
+        <div className="uploader-bottom-bar">
+          <div className="uploader-trust-bar">
+            <span>Zero public data retention</span>
+            <span aria-hidden="true">·</span>
+            <span>Sentence-level diagnostics</span>
+            <span aria-hidden="true">·</span>
+            <span>APA 7th & MLA 9th citations</span>
+          </div>
+
           <button
             type="submit"
             className="btn-check-plagiarism-main"
@@ -470,22 +554,15 @@ export default function TextUploader({ onAnalyze, isLoading }: TextUploaderProps
             {isLoading ? (
               <>
                 <div className="spinner" />
-                <span>Scanning Billions of Sources & Paraphrase Patterns...</span>
+                <span>Analyzing Document...</span>
               </>
             ) : (
               <>
-                <Sparkles size={18} />
-                <span>Check for Plagiarism & Paraphrasing — 100% Free</span>
+                <ShieldCheck size={18} />
+                <span>Analyze Document</span>
               </>
             )}
           </button>
-        </div>
-
-        {/* Trust Badges Bar */}
-        <div className="uploader-trust-bar">
-          <span><CheckCircle2 size={14} className="text-emerald" /> No papers saved to public repositories</span>
-          <span><CheckCircle2 size={14} className="text-emerald" /> Instant sentence-by-sentence analysis</span>
-          <span><CheckCircle2 size={14} className="text-emerald" /> One-click APA/MLA citations</span>
         </div>
       </form>
     </div>

@@ -125,18 +125,22 @@ Sources Matched: ${result.sources?.map(s => `${s.title} (${s.similarity}%)`).joi
         </div>
       </div>
 
-      {/* DupliChecker-style Score Dials */}
+      {/* Score Dials */}
       <div className="scores-dashboard-card">
         <div className="scores-dashboard-header">
           <div>
-            <h2 className="scores-dashboard-title">Academic Integrity & Originality Report</h2>
+            <h2 className="scores-dashboard-title">Originality & Linguistic Analysis Report</h2>
             <p className="scores-dashboard-sub">
-              Scanned against indexed academic databases, research repositories, and web articles.
+              Cross-referenced against indexed publications, research repositories, and web archives.
             </p>
           </div>
-          <span className="free-student-stamp">
-            <ShieldCheck size={16} /> Free Student Verification
-          </span>
+          <div className="results-unboxed-meta">
+            <span>{result.wordCount.toLocaleString()} words</span>
+            <span aria-hidden="true">·</span>
+            <span>{result.readingTimeMinutes} min read</span>
+            <span aria-hidden="true">·</span>
+            <span className="text-emerald">{result.verdict}</span>
+          </div>
         </div>
 
         <div className="gauges-grid">

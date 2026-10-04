@@ -29,7 +29,6 @@ export default function LoginPage() {
   const [userType, setUserType] = useState<'student' | 'standard'>('student');
 
   // Form Fields
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [institutionName, setInstitutionName] = useState('');
   const [studentId, setStudentId] = useState('');
@@ -41,6 +40,7 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [demoCode, setDemoCode] = useState<string | null>(null);
+  const [smtpNotice, setSmtpNotice] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
 
   // If already logged in, redirect to home
@@ -62,16 +62,8 @@ export default function LoginPage() {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
-
-    if (!name.trim()) {
-      setErrorMsg('Please enter your full name.');
-      return;
-    }
-
-    if (!email.trim()) {
-      setErrorMsg('Please enter your email address to receive the verification code.');
-      return;
-    }
+    setSmtpNotice(null);
+    setDemoCode(null);
 
     if (userType === 'student') {
       if (!institutionName.trim()) {
@@ -84,12 +76,22 @@ export default function LoginPage() {
       }
     }
 
+    if (!email.trim()) {
+      setErrorMsg('Please enter your email address to receive the verification code.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const res = await fetch('/api/auth/send-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({
+          email: email.trim(),
+          userType,
+          institutionName: userType === 'student' ? institutionName.trim() : undefined,
+          studentId: userType === 'student' ? studentId.trim() : undefined,
+        }),
       });
 
       const data = await res.json();
@@ -99,9 +101,16 @@ export default function LoginPage() {
 
       setStep('code');
       setCountdown(45);
-      setSuccessMsg(`Verification code sent to ${data.email}. Check your inbox!`);
-      if (data.simulated && data.demoCode) {
-        setDemoCode(data.demoCode);
+      if (!data.simulated) {
+        setSuccessMsg(`Verification code sent to ${data.email}. Check your email inbox (and spam folder)!`);
+      } else {
+        setSuccessMsg(`Verification code generated for ${data.email}.`);
+        if (data.demoCode) {
+          setDemoCode(data.demoCode);
+        }
+        if (data.smtpError) {
+          setSmtpNotice(data.smtpError);
+        }
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Something went wrong. Please try again.');
@@ -124,7 +133,6 @@ export default function LoginPage() {
       const result = await signIn('email-code', {
         email: email.trim(),
         code: code.trim(),
-        name: name.trim(),
         userType,
         institutionName: userType === 'student' ? institutionName.trim() : '',
         studentId: userType === 'student' ? studentId.trim() : '',
@@ -151,13 +159,13 @@ export default function LoginPage() {
         <div className="login-header">
           <Link href="/" className="login-brand-link">
             <div className="brand-logo">
-              <ShieldCheck className="brand-icon" size={24} />
+              <ShieldCheck className="brand-icon" size={20} />
             </div>
             <span className="brand-title">Originality<span className="brand-gradient">AI</span></span>
           </Link>
-          <h1 className="login-title">Account Sign In</h1>
+          <h1 className="login-title">Sign In to Your Workspace</h1>
           <p className="login-subtitle">
-            Choose your account type below. Students receive 100% Free Unlimited Access.
+            Verified students receive <strong>100% Free Unlimited Access</strong> to deep originality, paraphrase, and citation tools.
           </p>
         </div>
 
@@ -174,7 +182,7 @@ export default function LoginPage() {
             >
               <GraduationCap size={18} />
               <div className="tab-text-group">
-                <span className="tab-title">Student Sign In</span>
+                <span className="tab-title">Student Account</span>
                 <span className="tab-tagline">100% Free Unlimited Access</span>
               </div>
             </button>
@@ -189,8 +197,8 @@ export default function LoginPage() {
             >
               <User size={18} />
               <div className="tab-text-group">
-                <span className="tab-title">Normal / General User</span>
-                <span className="tab-tagline">Standard Account Access</span>
+                <span className="tab-title">Standard Account</span>
+                <span className="tab-tagline">General Workspace Access</span>
               </div>
             </button>
           </div>
@@ -202,40 +210,19 @@ export default function LoginPage() {
             {/* Banner explaining entitlement */}
             {userType === 'student' ? (
               <div className="tier-info-banner banner-student">
-                <Sparkles size={16} className="text-emerald" />
+                <GraduationCap size={18} className="text-emerald" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <span>
-                  <strong>Student Free Pass:</strong> Enter your School or College Name and Student ID. You will receive <strong>unlimited scans, deep paraphrase detection, and APA/MLA citations</strong> for free.
+                  <strong>Students Have 100% Free Access:</strong> Verify with your institution name, student ID, and email to unlock unlimited document scans, paraphrase diagnostics, and APA/MLA citations at zero cost.
                 </span>
               </div>
             ) : (
               <div className="tier-info-banner banner-standard">
-                <User size={16} className="text-blue" />
+                <User size={18} className="text-blue" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <span>
-                  <strong>Standard User:</strong> Sign in with your email code to check documents with standard access.
+                  <strong>Standard Workspace Access:</strong> Sign in with a one-time email verification code. (Note: Students can switch to the Student Account tab above for free unlimited access.)
                 </span>
               </div>
             )}
-
-            {/* Full Name */}
-            <div className="form-group-login">
-              <label htmlFor="user-name" className="login-label">
-                Full Name
-              </label>
-              <div className="input-with-icon">
-                <User size={18} className="input-icon" />
-                <input
-                  id="user-name"
-                  type="text"
-                  className="login-input"
-                  placeholder="e.g. Ashwin Raj"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  disabled={isLoading}
-                  autoFocus
-                  required
-                />
-              </div>
-            </div>
 
             {/* Student Specific Fields */}
             {userType === 'student' && (
@@ -254,6 +241,7 @@ export default function LoginPage() {
                       value={institutionName}
                       onChange={(e) => setInstitutionName(e.target.value)}
                       disabled={isLoading}
+                      autoFocus
                       required
                     />
                   </div>
@@ -295,13 +283,14 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isLoading}
+                  autoFocus={userType === 'standard'}
                   required
                 />
               </div>
               <span className="input-help-text">
                 {userType === 'student'
-                  ? 'Use your Gmail or student email. A passwordless 6-digit login code will be sent.'
-                  : 'Enter any valid email address to receive your login code.'}
+                  ? 'Enter your Gmail or student email. A 6-digit verification code will be sent to your inbox.'
+                  : 'Enter your email address to receive your 6-digit verification code.'}
               </span>
             </div>
 
@@ -315,16 +304,20 @@ export default function LoginPage() {
             <button
               type="submit"
               className="btn-login-submit"
-              disabled={isLoading || !email.trim() || !name.trim()}
+              disabled={
+                isLoading ||
+                !email.trim() ||
+                (userType === 'student' && (!institutionName.trim() || !studentId.trim()))
+              }
             >
               {isLoading ? (
                 <>
                   <div className="spinner" />
-                  <span>Dispatching Login Code...</span>
+                  <span>Sending Code to Email...</span>
                 </>
               ) : (
                 <>
-                  <span>Send 6-Digit Verification Code</span>
+                  <span>Send 6-Digit Code to Email</span>
                   <ArrowRight size={18} />
                 </>
               )}
@@ -343,7 +336,7 @@ export default function LoginPage() {
                 )}
                 <div className="summary-text-block">
                   <div className="summary-name-row">
-                    <strong>{name}</strong>
+                    <strong>{email}</strong>
                     <span className={`pill-badge ${userType === 'student' ? 'badge-student' : 'badge-standard'}`}>
                       {userType === 'student' ? 'Student Free Tier' : 'Standard User'}
                     </span>
@@ -353,7 +346,6 @@ export default function LoginPage() {
                       {institutionName} • ID: {studentId}
                     </span>
                   )}
-                  <span className="summary-email-text">{email}</span>
                 </div>
               </div>
               <button
@@ -364,6 +356,7 @@ export default function LoginPage() {
                   setCode('');
                   setErrorMsg(null);
                   setSuccessMsg(null);
+                  setSmtpNotice(null);
                 }}
               >
                 Edit
@@ -392,17 +385,24 @@ export default function LoginPage() {
             </div>
 
             {demoCode && (
-              <div className="demo-code-helper">
-                <span>Testing / Demo Code:</span>
-                <button
-                  type="button"
-                  className="btn-paste-code"
-                  onClick={() => setCode(demoCode)}
-                  title="Click to autofill test code"
-                >
-                  <code>{demoCode}</code>
-                  <span className="click-to-fill">(Click to fill)</span>
-                </button>
+              <div className="demo-code-helper" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.45rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Fallback Verification Code:</span>
+                  <button
+                    type="button"
+                    className="btn-paste-code"
+                    onClick={() => setCode(demoCode)}
+                    title="Click to autofill verification code"
+                  >
+                    <code>{demoCode}</code>
+                    <span className="click-to-fill">(Click to fill)</span>
+                  </button>
+                </div>
+                {smtpNotice && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    Note: {smtpNotice} Set <code>GMAIL_USER</code> and a 16-character <code>GMAIL_APP_PASSWORD</code> in your environment variables to deliver codes directly to Gmail inboxes.
+                  </span>
+                )}
               </div>
             )}
 

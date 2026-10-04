@@ -4,7 +4,13 @@ const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
   experimental: {
-    serverComponentsExternalPackages: ['pdf-parse'],
+    serverComponentsExternalPackages: ['pdf-parse', 'nodemailer'],
+    outputFileTracingIncludes: {
+      '/api/extract-text': [
+        './node_modules/pdf-parse/**/*',
+        './node_modules/node-ensure/**/*',
+      ],
+    },
   },
   images: {
     remotePatterns: [
